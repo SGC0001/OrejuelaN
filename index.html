@@ -3211,7 +3211,7 @@ video {
         const NPT_EXAMEN_TIEMPO_REVISION = 60;    // segundos para revisar respuestas al terminar
         const NPT_EXAMEN_TIEMPO_FINALIZAR = 10;   // segundos para presionar "Finalizar examen"
         const NPT_EXAMEN_PUNTOS_POR_ACIERTO = 0.5; // 20 preguntas x 0.5 = 10 puntos
-        const NPT_NOMBRE_DOCENTE = 'Ing. César Godoy Rosero, Mgt.';
+        const NPT_NOMBRE_DOCENTE = 'Nataly Orejuela Vargas, Mgt.';
         // Encabezado institucional oficial (escudo + Ministerio de Educación) usado en TODOS los
         // reportes/informes imprimibles. Se guarda como imagen embebida en Base64 para que los
         // reportes (que se abren en una pestaña/ventana aparte, sin acceso a los archivos del
@@ -7348,14 +7348,14 @@ video {
                     } else {
                         const ta = document.querySelector(`.npt-rubrica-insumo[data-insumo-rubrica="${ins.id}"]`);
                         const texto2 = texto(ta?.value).trim();
-                        const registro = { texto: texto2, fecha: new Date().toISOString(), docente: 'Ing. César Godoy Rosero, Mgt.' };
+                        const registro = { texto: texto2, fecha: new Date().toISOString(), docente: NPT_NOMBRE_DOCENTE };
                         nptRubricas[cv][pv][trimestre][ins.id] = registro;
                         await guardarValorFirebase(`nptRubricas/${cv}/${pv}/${trimestre}/${ins.id}`, registro);
                         if (ins.recuperacionHabilitado) {
                             const claveRecTexto = nptClaveRecuperacionInsumo(ins.id);
                             const taRec = document.querySelector(`.npt-rubrica-insumo-rec[data-insumo-rubrica-rec="${claveRecTexto}"]`);
                             const textoRec = texto(taRec?.value).trim();
-                            const registroRec = { texto: textoRec, fecha: new Date().toISOString(), docente: 'Ing. César Godoy Rosero, Mgt.' };
+                            const registroRec = { texto: textoRec, fecha: new Date().toISOString(), docente: NPT_NOMBRE_DOCENTE };
                             nptRubricas[cv][pv][trimestre][claveRecTexto] = registroRec;
                             await guardarValorFirebase(`nptRubricas/${cv}/${pv}/${trimestre}/${claveRecTexto}`, registroRec);
                         }
@@ -8474,7 +8474,7 @@ video {
             // real de cada insumo del curso que tengas seleccionado.
             const encabezadosInsumo = NPT_INSUMO_SLOTS.map((slotId, i) => `Insumo ${i+1}`);
             const ESTADO_ANUAL_CSV = { aprueba: 'Aprueba', pierde: 'Pierde', supletorio: 'Supletorio', pendiente: 'Pendiente (plazo vencido)' };
-            let csv = 'Estudiante,Cédula,Curso,Paralelo,' + encabezadosInsumo.join(',') + ',Promedio Insumos,Examen,Nota Final,Promedio Anual,Estado Final,'
+            let csv = 'Docente,Estudiante,Cédula,Curso,Paralelo,' + encabezadosInsumo.join(',') + ',Promedio Insumos,Examen,Nota Final,Promedio Anual,Estado Final,'
                 + encabezadosInsumo.map(h => `${h} (Original)`).join(',') + ',Examen (Original),'
                 + encabezadosInsumo.map(h => `${h} (Rec.)`).join(',') + ',Examen (Rec.)\n';
             alumnos.forEach(est => {
@@ -8489,7 +8489,7 @@ video {
                 const infoAnual = nptEstadoAnualNPT(est.cedula);
                 const fmt = v => v !== null ? formatearNota(v) : '';
                 csv += [
-                    csvCampo(est.nombre), csvCampo(est.cedula), csvCampo(est.curso), csvCampo(est.paralelo),
+                    csvCampo(NPT_NOMBRE_DOCENTE), csvCampo(est.nombre), csvCampo(est.cedula), csvCampo(est.curso), csvCampo(est.paralelo),
                     ...notasEfectivas.map(v => csvCampo(fmt(v))),
                     csvCampo(fmt(promInsumos)), csvCampo(fmt(nExamen)), csvCampo(fmt(notaFinal)),
                     csvCampo(fmt(infoAnual.promedioAnual)), csvCampo(ESTADO_ANUAL_CSV[infoAnual.estado] || ''),
@@ -9133,7 +9133,7 @@ video {
             const authOk = await ensureAuth();
             const observacion = {
                 fecha: new Date().toISOString(),
-                docente: 'Ing. César Godoy Rosero, Mgt.',
+                docente: NPT_NOMBRE_DOCENTE,
                 motivo: motivo.trim()
             };
             try {
@@ -9711,7 +9711,7 @@ video {
         function sgcSolRecuperacionYaRendida(it) {
             return notaNPTDe(it.cedula, it.num, claveRecuperacionNPT(it.clave)) !== null;
         }
-        const SGC_DOCENTE_RESPUESTA = 'Ing. César Godoy Rosero, Mgt.';
+        const SGC_DOCENTE_RESPUESTA = NPT_NOMBRE_DOCENTE;
         async function sgcSolEjecutarAprobacion(it) {
             const h = sgcSolRutaHabilitacion(it);
             await guardarValorFirebase(h.ruta, true);
@@ -9876,12 +9876,12 @@ video {
             if (!filas.length) { sgcFwToast(win, 'No hay solicitudes para exportar.', 'info'); return; }
             // Evita que Excel interprete como fórmula un texto escrito por el representante (=, +, -, @).
             const seguro = (v) => { const x = texto(v); return csvCampo(/^[=+\-@\t\r]/.test(x) ? "'" + x : x); };
-            let csv = 'Estudiante,Cédula,Curso,Paralelo,Trimestre,Evaluación,Estado,Nota original,Motivo,Representante,Cédula representante,Fecha solicitud,Fecha respuesta,Motivo de rechazo\n';
+            let csv = 'Docente,Estudiante,Cédula,Curso,Paralelo,Trimestre,Evaluación,Estado,Nota original,Motivo,Representante,Cédula representante,Fecha solicitud,Fecha respuesta,Motivo de rechazo\n';
             filas.forEach(e => {
                 const s = e.s;
                 const t = trimestresEfectivos().find(x => x.num === e.num);
                 csv += [
-                    e.nombre, e.cedula, e.curso, e.paralelo, t?.label || `Trimestre ${e.num}`, s.etiqueta || e.clave, sgcSolEstado(s),
+                    NPT_NOMBRE_DOCENTE, e.nombre, e.cedula, e.curso, e.paralelo, t?.label || `Trimestre ${e.num}`, s.etiqueta || e.clave, sgcSolEstado(s),
                     (s.notaOriginal !== null && s.notaOriginal !== undefined && s.notaOriginal !== '') ? formatearNota(s.notaOriginal) : '',
                     s.motivo, s.repNombre, s.repCedula, nptFormatoFechaHora(s.fecha), s.fechaRespuesta ? nptFormatoFechaHora(s.fechaRespuesta) : '', s.motivoRespuesta
                 ].map(seguro).join(',') + '\n';
@@ -10036,7 +10036,7 @@ video {
                 nota: Math.round(rawNota * 100) / 100,
                 observacion: obs,
                 fechaNota: new Date().toISOString(),
-                docente: 'Ing. César Godoy Rosero, Mgt.',
+                docente: NPT_NOMBRE_DOCENTE,
                 cedula, nombre, trimestre, tipo,
                 verificado,
                 fechaVerificacion: verificado ? new Date().toISOString() : null,
@@ -10087,7 +10087,7 @@ video {
         function exportarNPTCSV() {
             const filtroT = document.getElementById('npt-filtro-trimestre')?.value || '';
             const alumnos = estudiantesFiltrados();
-            let csv = 'Estudiante,Cédula,Curso,Paralelo,Trimestre,Tipo,Archivo,Fecha Entrega,Nota,Verificado,Observación,Desglose IA (criterio: obtenido/máximo),Observaciones IA (ubicación — aspecto: hallazgo)\n';
+            let csv = 'Docente,Estudiante,Cédula,Curso,Paralelo,Trimestre,Tipo,Archivo,Fecha Entrega,Nota,Verificado,Observación,Desglose IA (criterio: obtenido/máximo),Observaciones IA (ubicación — aspecto: hallazgo)\n';
             let total = 0;
             const agregarFila = (est, t, etiquetaTipo, arch, nota, ia) => {
                 // El desglose/observaciones se aplanan a texto porque la cantidad de criterios y su
@@ -10098,7 +10098,7 @@ video {
                 const observacionesTexto = (ia?.observaciones || [])
                     .map(o => `${o.ubicacion ? o.ubicacion + ' — ' : ''}${o.aspecto ? o.aspecto + ': ' : ''}${o.observacion}`).join(' | ');
                 csv += [
-                    csvCampo(est.nombre), csvCampo(est.cedula),
+                    csvCampo(NPT_NOMBRE_DOCENTE), csvCampo(est.nombre), csvCampo(est.cedula),
                     csvCampo(est.curso), csvCampo(est.paralelo),
                     csvCampo(t.label), csvCampo(etiquetaTipo),
                     csvCampo(arch?.nombre || (arch?.origen === 'otros_medios' ? (arch?.url ? `Evidencia (otros medios): ${arch.url}` : 'Otros medios (sin evidencia)') : 'Sin entrega')),
@@ -10908,7 +10908,8 @@ video {
             return `"${texto(valor).replace(/"/g, '""')}"`;
         }
 
-        function descargarArchivo(nombre, contenido, tipo = 'text/plain;charset=utf-8') {
+        function descargarArchivo(nombre, contenido, tipo = 'text/plain;charset=utf-8', omitirPrevisualizacion = false) {
+            if (!omitirPrevisualizacion && /^text\/csv(?:;|$)/i.test(tipo)) { abrirPrevisualizacionCSV(nombre, contenido); return; }
             const blob = new Blob(["\uFEFF" + contenido], { type: tipo });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -10923,7 +10924,31 @@ video {
             }, 1500);
         }
 
-        function documentoReporte(titulo, contenido) {
+        function mostrarReporteEnModal(html, alCerrar = null) {
+            document.getElementById('sgc-reporte-preview-modal')?.remove();
+            const modal=document.createElement('div');modal.id='sgc-reporte-preview-modal';modal.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.72);display:flex;flex-direction:column;padding:12px;box-sizing:border-box';
+            const barra=document.createElement('div');barra.style.cssText='display:flex;justify-content:flex-end;background:#fff;padding:8px 12px;border-radius:10px 10px 0 0';
+            const cerrar=document.createElement('button');cerrar.type='button';cerrar.textContent='Cerrar vista previa';cerrar.style.cssText='background:#334155;color:#fff;border:0;border-radius:7px;padding:8px 12px;font-weight:700;cursor:pointer';
+            cerrar.addEventListener('click',()=>{modal.remove();if(typeof alCerrar==='function')alCerrar();});barra.appendChild(cerrar);
+            const marco=document.createElement('iframe');marco.title='Vista previa del reporte';marco.style.cssText='flex:1;width:100%;border:0;background:#fff;border-radius:0 0 10px 10px';marco.srcdoc=html;
+            modal.append(barra,marco);document.body.appendChild(modal);cerrar.focus();return modal;
+        }
+        function analizarCSVParaReporte(textoCSV) {
+            const filas=[];let fila=[],campo='',entreComillas=false;const texto=String(textoCSV||'').replace(/^\uFEFF/,'');
+            for(let i=0;i<texto.length;i++){const ch=texto[i];if(entreComillas){if(ch==='"'&&texto[i+1]==='"'){campo+='"';i++;}else if(ch==='"')entreComillas=false;else campo+=ch;}else if(ch==='"')entreComillas=true;else if(ch===','){fila.push(campo);campo='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&texto[i+1]==='\n')i++;fila.push(campo);campo='';if(fila.some(v=>v!==''))filas.push(fila);fila=[];}else campo+=ch;}
+            if(campo!==''||fila.length){fila.push(campo);if(fila.some(v=>v!==''))filas.push(fila);}return filas;
+        }
+        function abrirPrevisualizacionCSV(nombreArchivo,contenidoCSV,ventanaPreabierta=null) {
+            const filas=analizarCSVParaReporte(contenidoCSV);if(!filas.length){alert('El reporte no contiene filas para previsualizar.');return;}
+            const nombre=String(nombreArchivo||'reporte.csv'),titulo=nombre.replace(/\.csv$/i,'').replace(/[_-]+/g,' '),urlCSV=URL.createObjectURL(new Blob(["\uFEFF"+contenidoCSV],{type:'text/csv;charset=utf-8'}));
+            const cab=filas[0],th=cab.map(v=>`<th>${escapeHtml(v)}</th>`).join(''),tbody=filas.slice(1).map(f=>`<tr>${cab.map((_,i)=>`<td>${escapeHtml(f[i]??'')}</td>`).join('')}</tr>`).join('');
+            const contenido=`<div class="actions"><a class="csv-download" href="${urlCSV}" download="${escapeHtml(nombre)}">Descargar CSV</a></div><div class="csv-table-wrap"><table class="csv-table"><thead><tr>${th}</tr></thead><tbody>${tbody}</tbody></table></div><style>@page{size:landscape;margin:8mm}.csv-table-wrap{overflow-x:auto}table.csv-table{table-layout:auto;font-size:8px}.csv-table th,.csv-table td{padding:3px 4px;font-size:8px}@media print{.csv-table-wrap{overflow:visible}table.csv-table{width:100%;table-layout:fixed}}.csv-download{display:inline-block;background:#0369a1;color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px}</style>`;
+            const html=documentoReporte(titulo,contenido,'landscape'),win=ventanaPreabierta&&!ventanaPreabierta.closed?ventanaPreabierta:window.open('','_blank');
+            if(win&&!win.closed){win.document.open();win.document.write(html);win.document.close();win.focus();win.addEventListener('beforeunload',()=>URL.revokeObjectURL(urlCSV),{once:true});return;}
+            mostrarReporteEnModal(html,()=>URL.revokeObjectURL(urlCSV));
+        }
+
+        function documentoReporte(titulo, contenido, orientacion = 'portrait') {
             return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -10955,7 +10980,7 @@ video {
         .col-cantidad { width: 80px; text-align: center; }
         .col-porcentaje { width: 80px; text-align: center; }
         .resumen { margin-top: 22px; page-break-inside: avoid; }
-        @page { margin: 12mm; }
+        @page { size: ${orientacion}; margin: ${orientacion === 'landscape' ? '8mm' : '12mm'}; }
         @media print {
             .actions { display: none; }
             body { margin: 0; }
@@ -10968,6 +10993,7 @@ video {
     ${NPT_ENCABEZADO_REPORTE_HTML}
     <header>
         <h1>${escapeHtml(titulo)}</h1>
+        <div class="meta"><strong>Docente:</strong> ${escapeHtml(NPT_NOMBRE_DOCENTE)}</div>
         <div class="meta">Generado: ${escapeHtml(nptFormatoFechaHora(new Date()))}</div>
     </header>
     <div class="actions"><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
@@ -10977,9 +11003,9 @@ video {
 </html>`;
         }
 
-        function abrirODescargarReporte(titulo, contenido, nombreArchivo) {
-            const html = documentoReporte(titulo, contenido);
-            const win = window.open('', '_blank');
+        function abrirODescargarReporte(titulo, contenido, nombreArchivo, orientacion = 'portrait', ventanaPreabierta = null) {
+            const html = documentoReporte(titulo, contenido, orientacion);
+            const win = ventanaPreabierta && !ventanaPreabierta.closed ? ventanaPreabierta : window.open('', '_blank');
             if (win && !win.closed) {
                 win.document.open();
                 win.document.write(html);
@@ -10987,8 +11013,7 @@ video {
                 win.focus();
                 return;
             }
-            descargarArchivo(nombreArchivo, html, 'text/html;charset=utf-8');
-            alert("El navegador bloqueó la ventana del reporte. Se descargó un archivo HTML que puedes abrir e imprimir.");
+            mostrarReporteEnModal(html);
         }
 
         // Tabla de resultados de diagnóstico (DAR/AAR/PAR/NAR).
@@ -11063,10 +11088,11 @@ video {
             if (!validarFiltroReporte()) return;
             const listaEvaluaciones = calificacionesFiltradas();
             if(!listaEvaluaciones.length) { alert("No hay evaluaciones para exportar en el filtro seleccionado."); return; }
-            let csv = "Estudiante,Curso,Paralelo,Nota,Fecha\n";
+            let csv = "Docente,Estudiante,Curso,Paralelo,Nota,Fecha\n";
             listaEvaluaciones.forEach(c => {
                 let est = estudiantes.find(e => e.cedula === c.cedula);
                 csv += [
+                    csvCampo(NPT_NOMBRE_DOCENTE),
                     csvCampo(c.nombre || est?.nombre),
                     csvCampo(c.curso || est?.curso),
                     csvCampo(c.paralelo || est?.paralelo),
@@ -11164,7 +11190,7 @@ video {
             // y la fila de cabecera indica qué insumo ocupa cada posición para el PRIMER estudiante
             // de la lista (referencial; usa el reporte HTML para ver la etiqueta exacta por curso).
             const encabezadosInsumo = NPT_INSUMO_SLOTS.map((slotId, i) => `Insumo ${i+1}`);
-            let csv = 'Estudiante,Cédula,Curso,Paralelo,' + encabezadosInsumo.join(',') + ',Promedio Insumos,Examen,Nota Final,'
+            let csv = 'Docente,Estudiante,Cédula,Curso,Paralelo,' + encabezadosInsumo.join(',') + ',Promedio Insumos,Examen,Nota Final,'
                 + encabezadosInsumo.map(h => `${h} (Original)`).join(',') + ',Examen (Original),'
                 + encabezadosInsumo.map(h => `${h} (Rec.)`).join(',') + ',Examen (Rec.)\n';
             alumnos.forEach(e => {
@@ -11433,7 +11459,7 @@ video {
                 const entrada = {
                     accion, detalle,
                     fecha: new Date().toISOString(),
-                    docente: 'Ing. César Godoy Rosero, Mgt.'
+                    docente: NPT_NOMBRE_DOCENTE
                 };
                 const key = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 await guardarValorFirebase(`auditoria/${key}`, entrada);
@@ -12341,11 +12367,12 @@ video {
         async function generarReporteAsistencia() {
             if(!horarioDocente.length) return alert('Primero configura el horario en Configuración.');
             const desde=document.getElementById('asistencia-reporte-desde').value,hasta=document.getElementById('asistencia-reporte-hasta').value;if(!desde||!hasta||desde>hasta)return alert('Selecciona un rango de fechas válido.');
+            const ventanaPrevia=window.open('','_blank');if(ventanaPrevia&&!ventanaPrevia.closed){ventanaPrevia.document.write('<!DOCTYPE html><html lang="es"><meta charset="UTF-8"><title>Preparando reporte</title><body style="font-family:Arial,sans-serif;padding:24px;color:#334155">Preparando la vista previa del reporte de asistencia...</body></html>');ventanaPrevia.document.close();}
             const fechas=[]; for(let d=new Date(`${desde}T12:00:00`),fin=new Date(`${hasta}T12:00:00`);d<=fin;d.setDate(d.getDate()+1)){const f=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;if(fechaEsLaborable(f))fechas.push(f);}
-            await Promise.all(fechas.map(async f=>{await cargarAsistenciaFecha(f);await cargarTemasAsistenciaFecha(f);}));
+            try{await Promise.all(fechas.map(async f=>{await cargarAsistenciaFecha(f);await cargarTemasAsistenciaFecha(f);}));}catch(e){if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.document.body.innerHTML='<p style="font-family:Arial,sans-serif;padding:24px;color:#991b1b">No se pudieron cargar los datos del reporte. Cierre esta pestaña e inténtelo nuevamente.</p>';alert('No se pudieron cargar los datos de asistencia para el reporte: '+(e?.message||'error desconocido'));return;}
             const out=[['Fecha','Día','Hora','Asignatura','Curso','Paralelo','Unidad','Tema de clase','Origen tema','Cédula','Estudiante','Estado','Novedad estudiante','Observación curso']];
             for(const fecha of fechas){for(const clase of horarioDocente.filter(x=>normalizarDiaHorario(x.dia)===normalizarDiaHorario(asistenciaDia(fecha)))){const key=encodeURIComponent(`${clase.curso}|${clase.paralelo}`);let novCurso='';try{const n=await leerValorRutaFirebase(`asistenciaNovedadesCurso/${fecha}/${key}`);novCurso=n?.observacion||'';}catch(e){}for(const est of estudiantes.filter(e=>e.curso===clase.curso&&e.paralelo===clase.paralelo)){const reg=asistenciaRegistros[fecha]?.[asistenciaSesionId(clase)]?.[est.cedula],tema=asistenciaTemas[fecha]?.[asistenciaSesionId(clase)]||{};out.push([fecha,asistenciaDia(fecha),clase.hora,clase.asignatura||'',clase.curso,clase.paralelo,tema.unidad||'',tema.tema||'',tema.origen||'',est.cedula,est.nombre,reg?.estado||'Sin registrar',reg?.observacion||'',novCurso]);}}}
-            if(out.length===1)return alert('No hay clases configuradas en el horario dentro del rango seleccionado.');const csv='\uFEFF'+out.map(row=>row.map(escaparCSV).join(',')).join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`reporte_asistencia_novedades_${desde}_${hasta}.csv`;a.click();URL.revokeObjectURL(url);
+            if(out.length===1){if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.close();return alert('No hay clases configuradas en el horario dentro del rango seleccionado.');}const filas=out.slice(1),cabeceras=out[0];const tabla=`<p><strong>Período:</strong> ${escapeHtml(desde)} al ${escapeHtml(hasta)} · <strong>Registros:</strong> ${filas.length}</p><div class=\"tabla-asistencia-wrap\"><table class=\"tabla-asistencia\"><thead><tr>${cabeceras.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${filas.map(f=>`<tr>${cabeceras.map((_,i)=>`<td>${escapeHtml(f[i]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div><style>.tabla-asistencia-wrap{overflow-x:auto}table.tabla-asistencia{table-layout:auto;font-size:8px}.tabla-asistencia th,.tabla-asistencia td{font-size:8px;padding:3px 4px;overflow-wrap:anywhere}.tabla-asistencia thead{display:table-header-group}.tabla-asistencia tr{break-inside:avoid}@media print{.tabla-asistencia-wrap{overflow:visible}table.tabla-asistencia{width:100%;table-layout:fixed}}</style>`;abrirODescargarReporte('Reporte de Asistencia y Novedades',tabla,`reporte_asistencia_novedades_${desde}_${hasta}.html`,'landscape',ventanaPrevia);
         }
 
         // ---- Período activo ----
@@ -13040,6 +13067,7 @@ video {
             const etiquetaTp = tp ? `${tp.label}${esRec ? ' (Recuperación)' : ''}` : tipo;
             const notaOriginalRef = esRec ? notaNPTDe(cedula, numTrimestre, tipoBase) : null;
             const notaEfectivaRef = esRec ? notaEfectivaNPT(cedula, numTrimestre, tipoBase) : null;
+            const docenteVerificador = nota.docente === 'Ing. César Godoy Rosero, Mgt.' ? NPT_NOMBRE_DOCENTE : (nota.docente || NPT_NOMBRE_DOCENTE);
             const ventana = window.open('', '_blank');
             if (!ventana) { alert('El navegador bloqueó la ventana de impresión. Habilita las ventanas emergentes.'); return; }
             ventana.document.write(`
@@ -13047,6 +13075,10 @@ video {
                 <style>
                     @page { margin: 12mm; }
                     body{font-family:Arial,sans-serif;padding:0;color:#1e293b}
+                    .actions{margin:12px 0}
+                    .actions button{background:#0369a1;border:0;color:#fff;padding:8px 12px;border-radius:6px;font:700 13px Arial,sans-serif;cursor:pointer}
+                    .actions button:hover{background:#075985}
+                    @media print {.actions{display:none}}
                     .encabezado-institucional{display:block;width:100%;height:auto;margin-bottom:16px}
                     h1{font-size:20px;margin:0 0 14px}
                     table{width:100%;border-collapse:collapse;margin-top:20px}
@@ -13055,7 +13087,9 @@ video {
                 </head><body>
                 ${NPT_ENCABEZADO_REPORTE_HTML}
                 <h1>Notas del Trimestre (NPT)</h1>
+                <div class="actions"><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
                 <table>
+                    <tr><th>Docente</th><td>${escapeHtml(NPT_NOMBRE_DOCENTE)}</td></tr>
                     <tr><th>Estudiante</th><td>${escapeHtml(estudianteActual.nombre)}</td></tr>
                     <tr><th>Cédula</th><td>${escapeHtml(cedula)}</td></tr>
                     <tr><th>Curso / Paralelo</th><td>${escapeHtml(estudianteActual.curso)} "${escapeHtml(estudianteActual.paralelo)}"</td></tr>
@@ -13063,14 +13097,13 @@ video {
                     <tr><th>Tipo de entrega</th><td>${escapeHtml(etiquetaTp)}</td></tr>
                     <tr><th>Nota</th><td>${formatearNota(numero(nota.nota))} / 10</td></tr>
                     <tr><th>Observación del docente</th><td>${escapeHtml(nota.observacion||'-')}</td></tr>
-                    <tr><th>Verificado por</th><td>${escapeHtml(nota.docente||'-')} — ${escapeHtml(nptFormatoFechaHora(nota.fechaVerificacion))}</td></tr>
+                    <tr><th>Verificado por</th><td>${escapeHtml(docenteVerificador)} — ${escapeHtml(nptFormatoFechaHora(nota.fechaVerificacion))}</td></tr>
                     ${esRec ? `<tr><th>Nota original</th><td>${notaOriginalRef !== null ? formatearNota(notaOriginalRef) + ' / 10' : 'No registrada'}</td></tr>
                     <tr><th>🔁 Nota efectiva del insumo</th><td><strong>${formatearNota(notaEfectivaRef)} / 10</strong> — ${notaOriginalRef !== null ? 'promedio entre la nota original y esta recuperación' : 'no había nota original: se tomó solo esta recuperación'}. Esta es la nota que entra a la fórmula del trimestre.</td></tr>` : ''}
                 </table>
                 </body></html>`);
             ventana.document.close();
             ventana.focus();
-            setTimeout(() => ventana.print(), 300);
         }
         window.imprimirReporteNPT = imprimirReporteNPT;
 
