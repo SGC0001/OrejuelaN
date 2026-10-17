@@ -9253,59 +9253,79 @@ video {
             });
         }
 
-        // Recolecta, en la vista actual (respetando el filtro de trimestre y estudiantesFiltrados()),
-        // toda entrega YA CALIFICADA (nota registrada, sin importar si vino de IA, de un insumo tipo
-        // Test autocalificado, o de una nota ingresada manualmente) cuya casilla "Verificar nota" del
-        // modal "Asignar Nota NPT" todavía no está marcada. Incluye tanto la nota original de cada
-        // insumo activo como su recuperación (si existe). El examen NO se incluye: no tiene ese
-        // checkbox en su fila (se revisa con "🖨️ Ver examen" directamente).
+        function nptNotaMarcadaComoVerificada(registro) {
+            const valor=registro?.verificado;
+            return valor===true || valor===1 || String(valor??'').trim().toLowerCase()==='true';
+        }
+
+        // Recolecta tanto notas guardadas como resultados de IA que todavía no se han convertido
+        // en una nota confirmada por el docente. Respeta el filtro de trimestre y estudiantesFiltrados().
+        // Incluye claves dinámicas e históricas; el examen no usa este flujo de verificación.
         function nptFilasPendientesVerificarNota() {
             const filtroT = document.getElementById('npt-filtro-trimestre')?.value || '';
             const alumnos = estudiantesFiltrados();
             const pendientes = [];
+            const tiposBase = new Set([...NPT_INSUMO_SLOTS, ...NPT_INSUMOS_ENTREGA]);
             alumnos.forEach(est => {
                 trimestresEfectivos().forEach(t => {
                     if (filtroT && String(t.num) !== filtroT) return;
-                    nptInsumosActivosNPT(est.curso, est.paralelo, t.num).forEach(tp => {
-                        const nota = nptNotas[est.cedula]?.[`trimestre${t.num}`]?.[tp.id] || null;
-                        if (nota && !nota.verificado) pendientes.push({ cedula: est.cedula, numTrimestre: t.num, tipo: tp.id });
-                        const claveRec = nptClaveRecuperacionInsumo(tp.id);
-                        const notaRec = nptNotas[est.cedula]?.[`trimestre${t.num}`]?.[claveRec] || null;
-                        if (notaRec && !notaRec.verificado) pendientes.push({ cedula: est.cedula, numTrimestre: t.num, tipo: claveRec });
+                    const notasTrim=nptNotas[est.cedula]?.[`trimestre${t.num}`];
+                    const iaTrim=nptEvaluacionesIA[est.cedula]?.[`trimestre${t.num}`];
+                    const tipos=new Set([...Object.keys(notasTrim||{}),...Object.keys(iaTrim||{})]);
+                    tipos.forEach(tipo=>{
+                        const tipoBase=nptTipoBaseDeClaveInsumo(tipo);
+                        const esTipoVerificable=tiposBase.has(tipoBase) && (tipo===tipoBase || nptEsClaveRecuperacionInsumo(tipo));
+                        if(!esTipoVerificable) return;
+                        const nota=notasTrim?.[tipo];
+                        if(nota && typeof nota==='object' && nota.nota!==null && nota.nota!==undefined && nota.nota!=='' && Number.isFinite(Number(nota.nota))) {
+                            if(!nptNotaMarcadaComoVerificada(nota)) pendientes.push({cedula:est.cedula,numTrimestre:t.num,tipo,origen:'nota'});
+                            return;
+                        }
+                        const ia=iaTrim?.[tipo];
+                        if(ia && ia.nota!==null && ia.nota!==undefined && ia.nota!=='' && Number.isFinite(Number(ia.nota))) {
+                            pendientes.push({cedula:est.cedula,numTrimestre:t.num,tipo,origen:'ia'});
+                        }
                     });
                 });
             });
             return pendientes;
         }
 
-        // Botón "Verificar todos los pendientes": para cada entrega YA CALIFICADA que aún no tiene
-        // marcada la casilla "Verificar nota" (en la vista actual), la marca — exactamente lo mismo
-        // que hace guardarNotaNPT cuando el docente abre "✏️ Editar / Verificar" y presiona "Guardar
-        // Nota" con la casilla activada, sin cambiar el valor de la nota ya registrada — pero para
-        // todas las filas pendientes de una sola vez. No llama a la IA ni depende de que exista una
-        // evaluación de IA: aplica igual a insumos tipo Test (autocalificados) y a notas ingresadas
-        // manualmente.
+        // Verifica notas ya guardadas y convierte evaluaciones IA pendientes en notas docentes,
+        // usando su puntaje y comentario originales. No ejecuta ni vuelve a llamar al servicio IA.
         let nptVerificarMasivaEnCurso = false;
         async function verificarTodosPendientesNPT() {
             if (nptVerificarMasivaEnCurso) return;
             const pendientes = nptFilasPendientesVerificarNota();
             if (pendientes.length === 0) {
-                alert('No hay notas pendientes de verificar en la vista actual: todas las entregas ya calificadas están verificadas.');
+                alert('No se encontraron notas ni evaluaciones IA pendientes de verificar para los estudiantes y trimestres seleccionados.');
                 return;
             }
-            if (!confirm(`Se va a marcar como VERIFICADA la nota ya registrada de ${pendientes.length} entrega(s) (el valor de la nota NO cambia, solo se activa la casilla "Verificar nota"). Esto habilita, donde aplica, que el estudiante pueda imprimir su reporte. ¿Continuar?`)) return;
+            if (!confirm(`Se van a verificar ${pendientes.length} pendiente(s). Las notas ya guardadas conservarán su puntaje. Las evaluaciones IA que aún no tienen nota confirmada se guardarán con el puntaje y comentario de IA como nota verificada por el docente. Esto habilita, donde aplica, que el estudiante pueda imprimir su reporte. ¿Continuar?`)) return;
 
             nptVerificarMasivaEnCurso = true;
             const btn = document.getElementById('npt-btn-verificar-todos');
             if (btn) { btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); btn.textContent = 'Verificando...'; }
 
             let ok = 0, fallidas = 0;
-            for (const { cedula, numTrimestre, tipo } of pendientes) {
+            for (const { cedula, numTrimestre, tipo, origen } of pendientes) {
                 try {
                     const actual = nptNotas[cedula]?.[`trimestre${numTrimestre}`]?.[tipo];
-                    if (!actual) { fallidas++; continue; }
-                    const registro = { ...actual, verificado: true, fechaVerificacion: new Date().toISOString() };
+                    if (actual && nptNotaMarcadaComoVerificada(actual)) continue;
+                    const evaluacionIA=nptEvaluacionesIA[cedula]?.[`trimestre${numTrimestre}`]?.[tipo];
+                    const base=actual || (origen==='ia' && evaluacionIA ? {
+                        nota:Math.round(Number(evaluacionIA.nota)*100)/100,
+                        observacion:texto(evaluacionIA.comentario||''),
+                        fechaNota:evaluacionIA.fecha||new Date().toISOString(),
+                        docente:NPT_NOMBRE_DOCENTE,cedula,
+                        nombre:estudiantes.find(e=>e.cedula===cedula)?.nombre||'',
+                        trimestre:numTrimestre,tipo,origen:null
+                    } : null);
+                    if(!base || !Number.isFinite(Number(base.nota))) { fallidas++; continue; }
+                    const registro = { ...base, verificado: true, fechaVerificacion: new Date().toISOString() };
                     await guardarValorFirebase(`nptNotas/${cedula}/trimestre${numTrimestre}/${tipo}`, registro);
+                    if(!nptNotas[cedula]) nptNotas[cedula]={};
+                    if(!nptNotas[cedula][`trimestre${numTrimestre}`]) nptNotas[cedula][`trimestre${numTrimestre}`]={};
                     nptNotas[cedula][`trimestre${numTrimestre}`][tipo] = registro;
                     ok++;
                 } catch(e) {
