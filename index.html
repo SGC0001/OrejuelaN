@@ -3673,9 +3673,16 @@ video {
             throw ultimoError || new Error('No se pudo verificar Firebase');
         }
 
-        /** Lee un nodo RTDB. Prioriza SDK (tiempo real), cae a REST. */
+        // La sesión de la aplicación se autentica con tokens REST; el SDK RTDB no
+        // comparte esa sesión. Tras iniciar sesión, ir directo a REST evita esperar
+        // una lectura SDK sin credenciales y luego repetirla autenticada.
+        function firebaseSesionRESTActiva() {
+            return !!(_authToken || _authRefreshToken);
+        }
+
+        /** Lee un nodo RTDB usando el transporte autenticado disponible. */
         async function leerValorRutaFirebase(ruta) {
-            if (database) {
+            if (database && !firebaseSesionRESTActiva()) {
                 try {
                     const snap = await database.ref(ruta).once('value');
                     return snap.val();
@@ -3695,7 +3702,7 @@ video {
             if(!actualizaciones||typeof actualizaciones!=='object'||!Object.keys(actualizaciones).length) {
                 throw new Error('La actualización no contiene rutas para guardar.');
             }
-            if(database) {
+            if(database && !firebaseSesionRESTActiva()) {
                 try {
                     await database.ref().update(actualizaciones);
                     return true;
@@ -3723,7 +3730,7 @@ video {
         /** Escribe (PUT) un nodo RTDB. Prioriza SDK, cae a REST. */
         async function guardarValorFirebase(ruta, valor) {
             await exigirSesionFirebase();
-            if (database) {
+            if (database && !firebaseSesionRESTActiva()) {
                 try {
                     await database.ref(ruta).set(valor);
                     return true;
@@ -3741,7 +3748,7 @@ video {
         /** Elimina un nodo RTDB. Prioriza SDK, cae a REST. */
         async function borrarValorFirebase(ruta) {
             await exigirSesionFirebase();
-            if (database) {
+            if (database && !firebaseSesionRESTActiva()) {
                 try {
                     await database.ref(ruta).remove();
                     return true;
@@ -3779,7 +3786,7 @@ video {
             return !!FIREBASE_DOCENTE_UID_AUTORIZADO && _authIdentity?.uid === FIREBASE_DOCENTE_UID_AUTORIZADO;
         }
 
-        async function cargarDatosFirebase() {
+        async function cargarDatosFirebase(opciones = {}) {
             if(!_authIdentity?.uid||!_authIdentity?.email) throw new Error('Inicia sesión antes de cargar datos.');
             document.getElementById('loading-data')?.classList.remove('hidden');
             try {
@@ -3814,15 +3821,18 @@ video {
                         curso:estudiante.curso,paralelo:estudiante.paralelo,clavesCurso,clavesParalelo,
                         actualizadoEn:new Date().toISOString()
                     });
-                    let calificacionesPropias=null;
-                    for(const ruta of RUTAS_CALIFICACIONES) {
-                        try {
-                            const valor=await leerValorRutaFirebase(ruta+'/'+ced);
-                            if(valor!==null&&valor!==undefined) { calificacionesPropias=valor;rutaCalificaciones=ruta;break; }
-                        } catch(e) { console.warn('[AUTH] Sin permiso para consultar '+ruta+'/'+ced+':',e?.message||e); }
-                    }
                     estudiantes=[estudiante];
-                    calificaciones=normalizarListaCalificaciones(calificacionesPropias||{});
+                    calificaciones=[];
+                    if(opciones.precargarCalificaciones!==false) {
+                        let calificacionesPropias=null;
+                        for(const ruta of RUTAS_CALIFICACIONES) {
+                            try {
+                                const valor=await leerValorRutaFirebase(ruta+'/'+ced);
+                                if(valor!==null&&valor!==undefined) { calificacionesPropias=valor;rutaCalificaciones=ruta;break; }
+                            } catch(e) { console.warn('[AUTH] Sin permiso para consultar '+ruta+'/'+ced+':',e?.message||e); }
+                        }
+                        calificaciones=normalizarListaCalificaciones(calificacionesPropias||{});
+                    }
                 }
                 datosInicialesCargados=true;
                 actualizarSelectores();
@@ -4521,24 +4531,24 @@ video {
             try {
                 const identidad=await iniciarSesionFirebase(correoCompleto,password);
                 if(identidad.claims?.email_verified!==true) throw new Error('EMAIL_NOT_VERIFIED');
-                await cargarDatosFirebase();
+                // El acceso estudiantil solo espera identidad, vínculo correo/cédula,
+                // registro UID necesario para reglas Firebase y reserva del límite diario.
+                // Notas legacy y datos NPT se cargan tras mostrar el aula.
+                await cargarDatosFirebase({precargarCalificaciones:false});
                 const est=estudiantes.find(e=>texto(e.correo).trim().toLowerCase()===correoCompleto&&e.cedula===ced);
                 if(!est) throw new Error('El correo autenticado no corresponde a esa cédula o el estudiante no está en la nómina.');
-                const nptOk=await esperarModuloNPT();
-                if(!nptOk) throw new Error('No se pudieron cargar los datos académicos del estudiante. Revisa permisos y conexión.');
-                try{await cargarConfigSistema();actualizarSelectoresTrimestre();actualizarBadgePeriodo();}
-                catch(e){console.warn('[NPT] No se pudo refrescar configuración antes del acceso:',e.message);}
                 estudianteActual=est;
+                actualizarVistasContadores();
                 document.getElementById('login-error')?.classList.add('hidden');
                 document.getElementById('input-clave-estudiante').value='';
-                await cargarArchivosEstudianteNPT(est.cedula);
-                // Reservar el acceso diario solo después de cargar el aula y antes de mostrarla.
-                // El servidor valida el límite; compare-and-set protege sesiones simultáneas.
+                // La reserva compare-and-set es parte de la autorización: debe completarse
+                // antes de abrir el aula, aunque la carga académica continúe después.
                 await registrarAccesoEstudiante(est.cedula);
                 document.getElementById('npt-student-name').innerText=est.nombre+' · '+(est.curso||'')+' "'+(est.paralelo||'')+'"';
                 document.getElementById('quiz-badge').innerText=est.nombre;
                 mostrarPantalla('screen-npt');
-                renderTrimestresEstudiante();
+                mostrarCargaInicialAulaEstudiante();
+                void cargarAulaEstudianteEnSegundoPlano(est);
             } catch(e) {
                 console.error('[AUTH] No se pudo completar el acceso estudiantil:',e);
                 limpiarSesionFirebase();
@@ -4549,6 +4559,58 @@ video {
             } finally {
                 if(btn){btn.disabled=false;btn.textContent=btn.dataset.labelOriginal||'Ingresar';delete btn.dataset.labelOriginal;}
             }
+        }
+
+        function mostrarCargaInicialAulaEstudiante(mensaje='Verificando información académica…') {
+            const cont=document.getElementById('npt-trimestres-container');
+            const anual=document.getElementById('npt-resultado-anual-container');
+            if(cont) cont.innerHTML=`<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center" role="status" aria-live="polite"><div class="text-2xl mb-2 animate-pulse">⏳</div><p class="text-sm font-bold text-slate-700">${escapeHtml(mensaje)}</p><p class="text-xs text-slate-500 mt-1">El acceso ya fue validado; el aula se está preparando.</p></div>`;
+            if(anual) anual.innerHTML='';
+        }
+
+        async function cargarCalificacionesEstudianteEnSegundoPlano(est) {
+            for(const ruta of RUTAS_CALIFICACIONES) {
+                try {
+                    const valor=await leerValorRutaFirebase(ruta+'/'+est.cedula);
+                    if(valor!==null&&valor!==undefined) {
+                        if(estudianteActual?.cedula===est.cedula) {
+                            rutaCalificaciones=ruta;
+                            calificaciones=normalizarListaCalificaciones(valor);
+                        }
+                        return;
+                    }
+                } catch(e) { console.warn('[AUTH] Sin permiso para cargar notas complementarias:',e?.message||e); }
+            }
+        }
+
+        async function cargarAulaEstudianteEnSegundoPlano(est) {
+            try {
+                const tareas=[
+                    esperarModuloNPT(),
+                    cargarConfigSistema().then(()=>{actualizarSelectoresTrimestre();actualizarBadgePeriodo();}),
+                    cargarCalificacionesEstudianteEnSegundoPlano(est)
+                ];
+                const [nptOk]=await Promise.all(tareas);
+                if(!nptOk) throw new Error('No se pudieron cargar todos los datos académicos. Verifica la conexión e inténtalo de nuevo.');
+                if(estudianteActual?.cedula!==est.cedula) return;
+                renderTrimestresEstudiante();
+                // La lectura de compatibilidad puede incluir entregas históricas grandes;
+                // se ejecuta después de pintar las tarjetas para no retrasar el acceso.
+                void cargarArchivosEstudianteNPT(est.cedula).then(()=>{
+                    if(estudianteActual?.cedula===est.cedula) renderTrimestresEstudiante();
+                });
+            } catch(e) {
+                console.error('[NPT] No se pudo completar la carga del aula:',e);
+                if(estudianteActual?.cedula!==est.cedula) return;
+                const cont=document.getElementById('npt-trimestres-container');
+                if(cont) cont.innerHTML=`<div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center" role="alert"><p class="text-sm font-bold text-amber-800">El aula abrió, pero no se pudieron cargar los datos académicos.</p><p class="text-xs text-amber-700 mt-1">${escapeHtml(e.message||'Revisa tu conexión a internet.')}</p><button type="button" onclick="reintentarCargaAulaEstudiante()" class="mt-3 bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Reintentar carga</button></div>`;
+            }
+        }
+
+        function reintentarCargaAulaEstudiante() {
+            if(!estudianteActual) return;
+            mostrarCargaInicialAulaEstudiante('Reintentando carga académica…');
+            void cargarAulaEstudianteEnSegundoPlano(estudianteActual);
         }
         // ==================== EXAMEN TRIMESTRAL — lógica de rendición ====================
         function mezclarArrayExamen(arr) {
@@ -5472,13 +5534,18 @@ video {
                 if(!FIREBASE_DOCENTE_UID_AUTORIZADO||identidad.uid!==FIREBASE_DOCENTE_UID_AUTORIZADO) throw new Error('CUENTA_DOCENTE_NO_AUTORIZADA');
                 console.info('[AUTH] Sesión Firebase iniciada para docente.');
                 await cargarDatosFirebase();
-                const datosOk=await esperarDatosIniciales(),nptOk=await esperarModuloNPT();
-                if(!datosOk||!nptOk) throw new Error('Se inició sesión, pero no fue posible cargar los datos del sistema.');
-                try { await cargarConfigSistema(); actualizarSelectoresTrimestre(); actualizarBadgePeriodo(); }
-                catch(e) { console.warn('[NPT] No se pudo refrescar configuración antes del acceso docente:',e.message); }
+                const [nptOk]=await Promise.all([
+                    esperarModuloNPT(),
+                    (async()=>{
+                        try { await cargarConfigSistema(); actualizarSelectoresTrimestre(); actualizarBadgePeriodo(); }
+                        catch(e) { console.warn('[NPT] No se pudo refrescar configuración antes del acceso docente:',e.message); }
+                    })()
+                ]);
+                if(!datosInicialesCargados||!nptOk) throw new Error('Se inició sesión, pero no fue posible cargar los datos del sistema.');
                 cargarArchivosDocenteFiltradosNPT().then(actualizarPaneles).catch(e=>console.warn('[NPT] Precarga docente:',e.message));
                 actualizarPaneles();
                 mostrarPantalla('screen-docente-panel');
+                iniciarEscuchaEntregasNPT();
                 registrarAccesoDocente();
             } catch(e) {
                 console.error('[AUTH] No se pudo iniciar sesión docente:',e);
@@ -5512,6 +5579,7 @@ video {
             }
         }
         function cerrarSesionDocente() {
+            detenerEscuchaEntregasNPT();
             detenerTimerPreguntaExamen();
             if(examenDesuscribirBloqueo){examenDesuscribirBloqueo();examenDesuscribirBloqueo=null;}
             limpiarSesionFirebase();
@@ -5693,6 +5761,10 @@ video {
         let nptArchivosMeta = {}; // metadatos sin Base64 para evitar descargar todos los PDF al iniciar
         let nptArchivosCargadosPorCedula = {}; // evita repetir lecturas por estudiante en la misma sesiÃ³n
         let nptPrecargaDocenteEnCurso = false;
+        let nptArchivosMetaStream = null;
+        let nptArchivosMetaStreamRetryTimer = null;
+        let nptArchivosMetaStreamGeneration = 0;
+        let nptArchivosMetaStreamRetryMs = 1000;
         let nptNotas = {};      // { cedula: { trimestre1: { cuaderno:{...}, libro:{...} }, ... } }
         let nptEvaluacionesIA = {}; // { cedula: { trimestre1: { cuaderno:{...}, libro:{...} }, ... } }
         let nptEvalMasivaEnCurso = false; // true mientras corre "Evaluar todos los pendientes" (bloquea botones IA)
@@ -5918,6 +5990,113 @@ video {
             }
         }
 
+        // Mantiene Entregas recibidas en vivo con el stream REST autenticado de RTDB.
+        // La sesión de esta app se autentica por REST; por eso el listener del SDK puede
+        // quedar sin credenciales docentes y no recibir cambios protegidos por reglas.
+        function nptAplicarCambioMetaStream(tipoEvento, payload) {
+            if (!payload || typeof payload.path !== 'string') return;
+            let raiz = nptArchivosMeta && typeof nptArchivosMeta === 'object' ? nptArchivosMeta : {};
+            const aplicarEnRuta = (ruta, valor) => {
+                const partes = String(ruta || '').split('/').filter(Boolean);
+                if (!partes.length) return valor && typeof valor === 'object' ? valor : {};
+                let nodo = raiz;
+                for (let i = 0; i < partes.length - 1; i++) {
+                    const clave = partes[i];
+                    if (!nodo[clave] || typeof nodo[clave] !== 'object') nodo[clave] = {};
+                    nodo = nodo[clave];
+                }
+                const ultima = partes[partes.length - 1];
+                if (valor === null) delete nodo[ultima];
+                else nodo[ultima] = valor;
+                return raiz;
+            };
+
+            if (tipoEvento === 'put') {
+                raiz = aplicarEnRuta(payload.path, payload.data);
+            } else if (tipoEvento === 'patch' && payload.data && typeof payload.data === 'object') {
+                for (const [subruta, valor] of Object.entries(payload.data)) {
+                    raiz = aplicarEnRuta(`${payload.path}/${subruta}`, valor);
+                }
+            } else {
+                return;
+            }
+            nptArchivosMeta = raiz;
+            nptArchivos = raiz;
+            if (!document.getElementById('screen-docente-panel')?.classList.contains('hidden')) {
+                renderNPTDocente();
+            }
+        }
+
+        function detenerEscuchaEntregasNPT() {
+            nptArchivosMetaStreamGeneration++;
+            if (nptArchivosMetaStreamRetryTimer) {
+                clearTimeout(nptArchivosMetaStreamRetryTimer);
+                nptArchivosMetaStreamRetryTimer = null;
+            }
+            if (nptArchivosMetaStream) {
+                nptArchivosMetaStream.close();
+                nptArchivosMetaStream = null;
+            }
+        }
+
+        function programarReconectarEntregasNPT(generacion, renovarToken = true) {
+            if (generacion !== nptArchivosMetaStreamGeneration || nptArchivosMetaStreamRetryTimer) return;
+            if (nptArchivosMetaStream) {
+                nptArchivosMetaStream.close();
+                nptArchivosMetaStream = null;
+            }
+            const espera = Math.min(nptArchivosMetaStreamRetryMs, 30000);
+            nptArchivosMetaStreamRetryMs = Math.min(nptArchivosMetaStreamRetryMs * 2, 30000);
+            nptArchivosMetaStreamRetryTimer = setTimeout(() => {
+                nptArchivosMetaStreamRetryTimer = null;
+                conectarEscuchaEntregasNPT(generacion, renovarToken).catch(error => {
+                    console.warn('[NPT] No se pudo restablecer la actualización automática:', error.message);
+                    programarReconectarEntregasNPT(generacion, true);
+                });
+            }, espera);
+        }
+
+        async function conectarEscuchaEntregasNPT(generacion, renovarToken = false) {
+            if (generacion !== nptArchivosMetaStreamGeneration ||
+                document.getElementById('screen-docente-panel')?.classList.contains('hidden')) return;
+            const token = await obtenerAuthToken(renovarToken);
+            if (!token) throw new Error('No hay una sesión Firebase docente vigente.');
+            if (generacion !== nptArchivosMetaStreamGeneration) return;
+            const url = `${rtdbRestUrl('nptArchivosMeta')}?auth=${encodeURIComponent(token)}`;
+            const stream = new EventSource(url);
+            nptArchivosMetaStream = stream;
+            stream.addEventListener('put', event => {
+                try { nptAplicarCambioMetaStream('put', JSON.parse(event.data)); }
+                catch (error) { console.warn('[NPT] Evento put inválido en el stream:', error.message); }
+            });
+            stream.addEventListener('patch', event => {
+                try { nptAplicarCambioMetaStream('patch', JSON.parse(event.data)); }
+                catch (error) { console.warn('[NPT] Evento patch inválido en el stream:', error.message); }
+            });
+            stream.addEventListener('keep-alive', () => {});
+            stream.addEventListener('auth_revoked', () => {
+                if (generacion === nptArchivosMetaStreamGeneration) programarReconectarEntregasNPT(generacion, true);
+            });
+            stream.addEventListener('cancel', () => {
+                console.error('[NPT] Firebase canceló el stream de entregas: revisa el permiso de lectura docente para nptArchivosMeta.');
+                detenerEscuchaEntregasNPT();
+            });
+            stream.onopen = () => { nptArchivosMetaStreamRetryMs = 1000; };
+            stream.onerror = () => {
+                if (generacion === nptArchivosMetaStreamGeneration) programarReconectarEntregasNPT(generacion, true);
+            };
+        }
+
+        function iniciarEscuchaEntregasNPT() {
+            detenerEscuchaEntregasNPT();
+            nptArchivosMetaStreamRetryMs = 1000;
+            const generacion = nptArchivosMetaStreamGeneration;
+            conectarEscuchaEntregasNPT(generacion).catch(error => {
+                console.warn('[NPT] No se pudo iniciar la actualización automática de entregas:', error.message);
+                programarReconectarEntregasNPT(generacion, true);
+            });
+        }
+
         async function cargarNotasNPT() {
             try {
                 const val = await leerValorRutaFirebase('nptNotas');
@@ -5970,6 +6149,9 @@ video {
                 cargarPropio('nptNotas'),cargarPropio('nptEvaluacionesIA'),cargarPropio('nptObservacionesDevolucion'),cargarPropio('nptSolicitudesRecuperacion'),cargarPropio('nptArchivosMeta')
             ]);
             nptArchivos=nptArchivosMeta;
+            if (nptArchivosMeta[est.cedula] && typeof nptArchivosMeta[est.cedula] === 'object') {
+                nptArchivosCargadosPorCedula[est.cedula] = true;
+            }
             const propios={nptHabilitacionEstudiantes:{},nptExamenHabilitacionEstudiantes:{},nptExamenRecuperacionHabilitacionEstudiantes:{},nptInsumoHabilitacionEstudiantes:{},nptInsumoRecuperacionHabilitacionEstudiantes:{}};
             const lecturas=[];
             for(const [c,p] of cruces) for(const n of [1,2,3]) {
@@ -5985,10 +6167,10 @@ video {
             }
             await Promise.all(lecturas);
             nptSupletorioHabilitacionEstudiantes={};
-            for(const [c,p] of cruces) {
+            await Promise.all(cruces.map(async([c,p])=>{
                 const v=await leerRutaNPTConFallback(`nptSupletorioHabilitacionEstudiantes/${c}/${p}/${est.cedula}`);
                 if(v!==null&&v!==undefined)asignarNodoRutaNPT(nptSupletorioHabilitacionEstudiantes,[c,p,est.cedula],v);
-            }
+            }));
             nptHabilitacionEstudiantes=propios.nptHabilitacionEstudiantes;
             nptExamenHabilitacionEstudiantes=propios.nptExamenHabilitacionEstudiantes;
             nptExamenRecuperacionHabilitacionEstudiantes=propios.nptExamenRecuperacionHabilitacionEstudiantes;
@@ -11574,16 +11756,25 @@ video {
                 console.warn('No se pudo cargar configuración del sistema:', e);
             }
             const cedulaSesion = estudiantes[0]?.cedula || normalizarCedula(document.getElementById('input-cedula')?.value || '');
-            try {
-                cntAccesosEstudiantesIndividuales = esSesionDocenteFirebase()
-                    ? ((await leerValorRutaFirebase('contadoresEstudiantesIndividuales')) || {})
-                    : (cedulaSesion ? {[cedulaSesion]: (await leerValorRutaFirebase(`contadoresEstudiantesIndividuales/${cedulaSesion}`)) || 0} : {});
-            } catch(e) { cntAccesosEstudiantesIndividuales = {}; }
-            try {
-                cntAccesosEstudiantesDiario = esSesionDocenteFirebase()
-                    ? ((await leerValorRutaFirebase('contadoresEstudiantesDiario')) || {})
-                    : (cedulaSesion ? {[cedulaSesion]: (await leerValorRutaFirebase(`contadoresEstudiantesDiario/${cedulaSesion}`)) || {}} : {});
-            } catch(e) { cntAccesosEstudiantesDiario = {}; }
+            const sesionDocente = esSesionDocenteFirebase();
+            const [individuales, diarios] = await Promise.all([
+                (async()=>{
+                    try {
+                        return sesionDocente
+                            ? ((await leerValorRutaFirebase('contadoresEstudiantesIndividuales')) || {})
+                            : (cedulaSesion ? {[cedulaSesion]: (await leerValorRutaFirebase(`contadoresEstudiantesIndividuales/${cedulaSesion}`)) || 0} : {});
+                    } catch(e) { console.warn('No se pudieron cargar los contadores individuales:',e.message); return {}; }
+                })(),
+                (async()=>{
+                    try {
+                        return sesionDocente
+                            ? ((await leerValorRutaFirebase('contadoresEstudiantesDiario')) || {})
+                            : (cedulaSesion ? {[cedulaSesion]: (await leerValorRutaFirebase(`contadoresEstudiantesDiario/${cedulaSesion}`)) || {}} : {});
+                    } catch(e) { console.warn('No se pudieron cargar los contadores diarios:',e.message); return {}; }
+                })()
+            ]);
+            cntAccesosEstudiantesIndividuales = individuales;
+            cntAccesosEstudiantesDiario = diarios;
             actualizarVistasContadores();
             renderFirmaDocentePreview();
         }
@@ -11640,14 +11831,19 @@ video {
                 if (!cntAccesosEstudiantesDiario[cedula]) cntAccesosEstudiantesDiario[cedula] = {};
                 cntAccesosEstudiantesDiario[cedula][hoy] = diario;
                 // Métricas complementarias: cada contador usa también CAS para no perder
-                // incrementos concurrentes, aunque el acceso diario ya quedó reservado.
-                try {
-                    cntAccesosEstudiantes = await incrementarContadorRESTCondicional('configuracion/contadores/accesosEstudiantes');
-                    cntAccesosEstudiantesIndividuales[cedula] = await incrementarContadorRESTCondicional(`contadoresEstudiantesIndividuales/${cedula}`);
-                } catch (e) {
-                    console.warn('Acceso diario registrado; no se pudo actualizar una métrica secundaria:', e.message);
-                }
+                // incrementos concurrentes. Se actualizan en segundo plano porque no
+                // determinan el permiso de acceso y no deben retrasar la entrada al aula.
                 actualizarVistasContadores();
+                void Promise.allSettled([
+                    incrementarContadorRESTCondicional('configuracion/contadores/accesosEstudiantes'),
+                    incrementarContadorRESTCondicional(`contadoresEstudiantesIndividuales/${cedula}`)
+                ]).then(([total, individual]) => {
+                    if(total.status==='fulfilled') cntAccesosEstudiantes=total.value;
+                    else console.warn('No se pudo actualizar el contador general:',total.reason?.message||total.reason);
+                    if(individual.status==='fulfilled') cntAccesosEstudiantesIndividuales[cedula]=individual.value;
+                    else console.warn('No se pudo actualizar el contador individual:',individual.reason?.message||individual.reason);
+                    actualizarVistasContadores();
+                });
             } catch(e) {
                 console.warn('No se pudo registrar acceso de estudiante:', e.message);
                 throw e;
