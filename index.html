@@ -2308,6 +2308,7 @@ video {
                     <button onclick="generarReporteNPTPorTrimestre()" class="bg-brand-600 text-white px-3 py-2 rounded-xl text-xs font-bold">📊 Reporte por Trimestre</button>
                     <button onclick="exportarReporteNPTPorTrimestreCSV()" class="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">📎 CSV Trimestre</button>
                     <button onclick="generarReporteNPTIndividual()" class="bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold">👤 Reporte Individual</button>
+                    <button onclick="enviarVerificacionCorreoDocente()" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-xl text-xs font-bold" title="Enviar un enlace para verificar el correo de la cuenta docente">✉️ Verificar correo</button>
                     <button onclick="cerrarSesionDocente()" class="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors">🚪 Salir</button>
                 </div>
             </div>
@@ -5485,6 +5486,29 @@ video {
                 if(err){err.textContent=mensajeErrorLoginFirebase(e);err.classList.remove('hidden');}
             } finally {
                 if(btn){btn.disabled=false;btn.textContent='Iniciar sesión';}
+            }
+        }
+        async function enviarVerificacionCorreoDocente() {
+            const btn=document.querySelector('#screen-docente-panel button[onclick="enviarVerificacionCorreoDocente()"]');
+            if(btn){btn.disabled=true;btn.dataset.labelOriginal=btn.textContent;btn.textContent='Enviando…';}
+            try {
+                const token=await obtenerAuthToken(true);
+                if(!token) throw new Error('La sesión docente no está activa. Cierra sesión e inicia de nuevo.');
+                const claims=decodificarClaimsFirebase(token);
+                if(claims.firebase?.sign_in_provider!=='password'||!claims.email) {
+                    throw new Error('La cuenta debe haber iniciado sesión con correo y contraseña de Firebase.');
+                }
+                if(claims.email_verified===true) {
+                    alert(`El correo ${claims.email} ya consta como verificado. Cierra sesión, vuelve a entrar y prueba la evaluación otra vez.`);
+                    return;
+                }
+                await enviarAccionCorreoFirebase({requestType:'VERIFY_EMAIL',idToken:token});
+                alert(`Firebase envió un enlace de verificación a ${claims.email}. Ábrelo y confirma la dirección. Después, cierra sesión, vuelve a iniciar sesión y prueba la evaluación.`);
+            } catch(e) {
+                console.error('[AUTH] No se pudo enviar la verificación de correo docente:',e);
+                alert(`No se pudo enviar el enlace de verificación: ${texto(e?.message||'error desconocido')}`);
+            } finally {
+                if(btn){btn.disabled=false;btn.textContent=btn.dataset.labelOriginal||'✉️ Verificar correo';delete btn.dataset.labelOriginal;}
             }
         }
         function cerrarSesionDocente() {
@@ -13192,6 +13216,7 @@ video {
         window.autorizarContinuarExamen = autorizarContinuarExamen;
         window.mostrarAccesoDocente = mostrarAccesoDocente;
         window.validarAccesoDocente = validarAccesoDocente;
+        window.enviarVerificacionCorreoDocente = enviarVerificacionCorreoDocente;
         window.cerrarSesionDocente = cerrarSesionDocente;
         window.volverAlInicio = volverAlInicio;
         window.switchTab = switchTab;
