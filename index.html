@@ -2272,7 +2272,7 @@ video {
                 </div>
             </div>
             <div class="border-t mt-6 pt-5 flex flex-wrap justify-between items-center gap-3 text-xs text-slate-400">
-                <p>Docente: <strong class="text-slate-600">Nataly Orejuela Vargas, Mgt.</strong></p>
+                <p>Docente: <strong id="nombre-docente-inicio" class="text-slate-600">Cargando...</strong></p>
                 <div class="flex items-center gap-3">
                     <span class="inline-flex items-center gap-1 text-slate-500" title="Total de ingresos de estudiantes al sistema"><span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">👥 <span id="cnt-accesos-estudiantes-general">0</span></span> accesos de estudiantes</span>
                     <button onclick="mostrarAccesoDocente()" class="text-brand-600 font-semibold">🔐 Acceso Docente</button>
@@ -2572,6 +2572,19 @@ video {
                             <button onclick="restablecerFormulaPromedio()" class="bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-300">↺ Restablecer (30/70)</button>
                         </div>
                         <p class="text-[11px] text-slate-400 mt-2">Ejemplo personalizado: Examen 40% (los insumos pasarían a valer 60% en conjunto, repartidos a partes iguales entre los 4).</p>
+                    </section>
+
+                    <!-- Nombre público del docente, leído desde un nodo aislado de RTDB -->
+                    <section class="bg-slate-50 rounded-xl p-4">
+                        <h4 class="font-bold text-sm mb-2">👩‍🏫 Nombre del docente en la aplicación y reportes</h4>
+                        <p class="text-[11px] text-slate-500 mb-3">Este dato se guarda en Firebase Realtime Database y se muestra en la pantalla inicial y en los reportes.</p>
+                        <div class="flex flex-wrap items-end gap-2">
+                            <div class="min-w-[240px] flex-1">
+                                <label for="cfg-nombre-docente" class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nombre para mostrar</label>
+                                <input id="cfg-nombre-docente" maxlength="120" autocomplete="name" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ingrese el nombre del docente">
+                            </div>
+                            <button onclick="guardarNombreDocente()" class="bg-brand-600 text-white px-3 py-2 rounded-lg text-xs font-bold">💾 Guardar nombre</button>
+                        </div>
                     </section>
 
                     <!-- (B2) Firma de referencia del docente -->
@@ -3187,7 +3200,7 @@ video {
 };
         // Se completará con el UID de la cuenta docente autorizada en Firebase Auth.
         // La misma identidad deberá quedar autorizada en las reglas de Realtime Database.
-        const FIREBASE_DOCENTE_UID_AUTORIZADO = 'RyAEmAW5x9c6Hn9yTIb8s9njOz92';
+        let FIREBASE_DOCENTE_UID_AUTORIZADO = ''; // Fuente de verdad: RTDB en docentePublico/uid
 
         let database;
         let fb_modo = 'desconocido'; // 'sdk' | 'rest' | 'local'
@@ -3211,7 +3224,7 @@ video {
         const NPT_EXAMEN_TIEMPO_REVISION = 60;    // segundos para revisar respuestas al terminar
         const NPT_EXAMEN_TIEMPO_FINALIZAR = 10;   // segundos para presionar "Finalizar examen"
         const NPT_EXAMEN_PUNTOS_POR_ACIERTO = 0.5; // 20 preguntas x 0.5 = 10 puntos
-        const NPT_NOMBRE_DOCENTE = 'Nataly Orejuela Vargas, Mgt.';
+        let NPT_NOMBRE_DOCENTE = ''; // Fuente de verdad: RTDB en docentePublico/nombre
         // Encabezado institucional oficial (escudo + Ministerio de Educación) usado en TODOS los
         // reportes/informes imprimibles. Se guarda como imagen embebida en Base64 para que los
         // reportes (que se abren en una pestaña/ventana aparte, sin acceso a los archivos del
@@ -3762,9 +3775,7 @@ video {
         }
 
         function esSesionDocenteFirebase() {
-            return !!FIREBASE_DOCENTE_UID_AUTORIZADO &&
-                FIREBASE_DOCENTE_UID_AUTORIZADO !== 'PENDIENTE_CONFIGURAR_UID' &&
-                _authIdentity?.uid === FIREBASE_DOCENTE_UID_AUTORIZADO;
+            return !!FIREBASE_DOCENTE_UID_AUTORIZADO && _authIdentity?.uid === FIREBASE_DOCENTE_UID_AUTORIZADO;
         }
 
         async function cargarDatosFirebase() {
@@ -3870,6 +3881,47 @@ video {
             return datosInicialesCargados;
         }
 
+        const RUTA_NOMBRE_DOCENTE_PUBLICO = 'docentePublico/nombre';
+        const RUTA_UID_DOCENTE_AUTORIZADO = 'docentePublico/uid';
+        function aplicarNombreDocente(nombre) {
+            NPT_NOMBRE_DOCENTE = typeof nombre === 'string' ? nombre.trim().slice(0, 120) : '';
+            const visible = NPT_NOMBRE_DOCENTE || 'No configurado';
+            const inicio = document.getElementById('nombre-docente-inicio');
+            if (inicio) inicio.textContent = visible;
+            const campo = document.getElementById('cfg-nombre-docente');
+            if (campo && document.activeElement !== campo) campo.value = NPT_NOMBRE_DOCENTE;
+        }
+        async function cargarNombreDocentePublico() {
+            try { aplicarNombreDocente(await fetchFirebase(rtdbRestUrl(RUTA_NOMBRE_DOCENTE_PUBLICO))); }
+            catch (e) { aplicarNombreDocente(''); console.warn('No se pudo cargar el nombre público del docente:', e.message); }
+        }
+        async function cargarUidDocenteAutorizado() {
+            try {
+                const uid = await fetchFirebase(rtdbRestUrl(RUTA_UID_DOCENTE_AUTORIZADO));
+                FIREBASE_DOCENTE_UID_AUTORIZADO = typeof uid === 'string' && uid.trim() ? uid.trim() : '';
+                return FIREBASE_DOCENTE_UID_AUTORIZADO;
+            } catch (e) {
+                FIREBASE_DOCENTE_UID_AUTORIZADO = '';
+                console.warn('No se pudo cargar el UID docente autorizado desde Firebase:', e.message);
+                return '';
+            }
+        }
+        async function guardarNombreDocente() {
+            const campo = document.getElementById('cfg-nombre-docente');
+            const nombre = String(campo?.value || '').trim();
+            if (!nombre || nombre.length > 120) return alert('Ingrese un nombre de hasta 120 caracteres.');
+            if (!(await ensureAuth()) || !esSesionDocenteFirebase()) return alert('Inicie sesión con la cuenta docente autorizada para guardar este dato.');
+            try {
+                await guardarValorFirebase(RUTA_NOMBRE_DOCENTE_PUBLICO, nombre);
+                aplicarNombreDocente(nombre);
+                await registrarAuditoria('nombre_docente', 'Nombre público del docente actualizado');
+                alert('Nombre del docente guardado en Firebase.');
+            } catch (e) {
+                console.error(e);
+                alert('No se pudo guardar el nombre del docente en Firebase: ' + (e.message || 'error desconocido'));
+            }
+        }
+
         // ==================== INICIALIZACIÓN FIREBASE ====================
         // Estrategia de conexión en 3 niveles:
         //   1. SDK Realtime Database (listeners en tiempo real, sin auth)
@@ -3885,6 +3937,7 @@ video {
                     fb_modo = 'sdk';
                     actualizarEstadoConexion('🟡 Conéctate con tu cuenta para cargar datos');
                     console.info('[FB] SDK preparado; lecturas diferidas hasta autenticar.');
+                    await Promise.all([cargarNombreDocentePublico(), cargarUidDocenteAutorizado()]);
                     return;
                 } catch (sdkErr) {
                     console.warn('[FB] SDK no disponible; REST se usará después del inicio de sesión:', sdkErr.message);
@@ -3893,6 +3946,7 @@ video {
             database = null;
             fb_modo = 'rest';
             actualizarEstadoConexion('🟡 REST preparado; espera el inicio de sesión');
+            await Promise.all([cargarNombreDocentePublico(), cargarUidDocenteAutorizado()]);
         }
 
         function mostrarErrorConexion() {
@@ -5413,7 +5467,8 @@ video {
             if(btn){btn.disabled=true;btn.textContent='Verificando…';}
             try {
                 const identidad=await iniciarSesionFirebase(email,password);
-                if(FIREBASE_DOCENTE_UID_AUTORIZADO==='PENDIENTE_CONFIGURAR_UID'||identidad.uid!==FIREBASE_DOCENTE_UID_AUTORIZADO) throw new Error('CUENTA_DOCENTE_NO_AUTORIZADA');
+                await cargarUidDocenteAutorizado();
+                if(!FIREBASE_DOCENTE_UID_AUTORIZADO||identidad.uid!==FIREBASE_DOCENTE_UID_AUTORIZADO) throw new Error('CUENTA_DOCENTE_NO_AUTORIZADA');
                 console.info('[AUTH] Sesión Firebase iniciada para docente.');
                 await cargarDatosFirebase();
                 const datosOk=await esperarDatosIniciales(),nptOk=await esperarModuloNPT();
@@ -5588,12 +5643,14 @@ video {
         // embebida en este HTML. Debe apuntar a un endpoint propio (backend/proxy) que reciba
         // { rubrica, archivoBase64, mime } O { rubrica, url } y devuelva { nota, comentario, ... }
         // llamando él mismo a la API de Gemini con la key resguardada en el servidor.
-        const NPT_EVAL_API_ENDPOINT = "https://npt-eval-proxy.cesargodoyia25.workers.dev";
+        const NPT_EVAL_API_ENDPOINT = "https://npt-eval-proxy-sgc.sgc0001az.workers.dev";
         // Endpoint liviano de validación al momento del envío (no gasta cuota de Gemini).
         const NPT_VALIDAR_ENVIO_ENDPOINT = NPT_EVAL_API_ENDPOINT + "/validar-envio";
-        // Secreto compartido con el Worker (mismo valor configurado allí como NPT_SHARED_SECRET).
-        // Se reutiliza en toda llamada al Worker (evaluación e validación) para no duplicarlo.
-        const NPT_AUTH_HEADER = '3f79bbd513edaf0d68bf046dd951929ae3f2a86e3aaaf05f';
+        // El Worker valida la identidad usando el ID token de Firebase; ningún secreto vive en el navegador.
+        async function nptWorkerHeadersAutenticados() {
+            const token = await exigirSesionFirebase();
+            return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+        }
 
         let nptConfig = {};                 // { [curso]: { [paralelo]: { [n]: {habilitado, examenHabilitado} } } }
         let nptHabilitacionEstudiantes = {}; // LEGACY/general: { [curso]: { [paralelo]: { [n]: { [cedula]: bool } } } }
@@ -6450,7 +6507,7 @@ video {
                 const hab = nptCantidadInsumosActivos(cursoActual, paraleloActual, t.num) > 0;
                 return `<button onclick="nptSeleccionarTabControl('${clave}')"
                     class="flex-1 py-2 px-3 rounded-lg text-xs font-bold whitespace-nowrap ${activo ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200'}">
-                    ${hab ? '🟢' : '🔴'} ${t.label}
+                    ${hab ? '🟢' : '🔴'} ${escapeHtml(t.label)}
                 </button>`;
             }).join('');
             const activoSup = nptControlTabActivo === 'sup';
@@ -6474,8 +6531,8 @@ video {
             const habExamenRecuperacion = nptExamenRecuperacionHabilitado(cursoActual, paraleloActual, t.num);
             return `<div class="flex items-center flex-wrap gap-3 bg-white border-2 ${hab ? 'border-brand-400' : 'border-slate-200'} rounded-xl p-3">
                 <div class="flex-1">
-                    <span class="font-bold text-sm">${t.label}</span>
-                    <p class="text-xs text-slate-400">${t.meses} · ${escapeHtml(cursoActual)} "${escapeHtml(paraleloActual)}"</p>
+                    <span class="font-bold text-sm">${escapeHtml(t.label)}</span>
+                    <p class="text-xs text-slate-400">${escapeHtml(t.meses || '')} · ${escapeHtml(cursoActual)} "${escapeHtml(paraleloActual)}"</p>
                 </div>
                 <span class="text-xs px-2 py-0.5 rounded-full font-bold ${hab ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${hab ? '🟢 ' + insumosActivos + '/' + totalInsumos + ' insumos' : '🔴 Cerrado'}</span>
                 <div class="flex flex-wrap gap-2">
@@ -7678,8 +7735,8 @@ video {
                         <td class="p-2 font-medium text-xs">${escapeHtml(est.nombre)}</td>
                         <td class="p-2 font-mono text-xs">${escapeHtml(est.cedula)}</td>
                         <td class="p-2 text-center">
-                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">${t.label}</span><br>
-                            <span class="text-[10px] text-slate-500">${tp.label}</span>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">${escapeHtml(t.label)}</span><br>
+                            <span class="text-[10px] text-slate-500">${escapeHtml(tp.label)}</span>
                         </td>
                         <td class="p-2 text-center">
                             ${arch?.url
@@ -7836,7 +7893,7 @@ video {
                         <td class="p-2 font-medium text-xs">${escapeHtml(est.nombre)}</td>
                         <td class="p-2 font-mono text-xs">${escapeHtml(est.cedula)}</td>
                         <td class="p-2 text-center">
-                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">${t.label}</span><br>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">${escapeHtml(t.label)}</span><br>
                             <span class="text-[10px] text-slate-500">📝 Examen</span>
                             ${examen.motivoSalida ? '<div class="text-[10px] text-rose-600 font-bold mt-0.5" title="'+escapeHtml(examen.motivoSalida)+'">⚠️ Salió del examen</div>' : ''}
                         </td>
@@ -7874,7 +7931,7 @@ video {
                         <td class="p-2 font-medium text-xs">${escapeHtml(est.nombre)}</td>
                         <td class="p-2 font-mono text-xs">${escapeHtml(est.cedula)}</td>
                         <td class="p-2 text-center">
-                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">${t.label}</span><br>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">${escapeHtml(t.label)}</span><br>
                             <span class="text-[10px] text-slate-500">🔁 Recuperación</span>
                             ${examen.motivoSalida ? '<div class="text-[10px] text-rose-600 font-bold mt-0.5" title="'+escapeHtml(examen.motivoSalida)+'">⚠️ Salió del examen</div>' : ''}
                         </td>
@@ -7946,8 +8003,8 @@ video {
                     <td class="p-2 font-medium text-xs">${escapeHtml(est.nombre)}</td>
                     <td class="p-2 font-mono text-xs">${escapeHtml(est.cedula)}</td>
                     <td class="p-2 text-center">
-                        <span class="text-xs font-bold px-2 py-0.5 rounded-full ${esRecuperacion ? 'bg-purple-50 text-purple-700' : 'bg-brand-50 text-brand-700'}">${t.label}</span><br>
-                        <span class="text-[10px] text-slate-500">${tp.label}${esRecuperacion ? ' · 🔁 Recuperación' : ''}</span>
+                        <span class="text-xs font-bold px-2 py-0.5 rounded-full ${esRecuperacion ? 'bg-purple-50 text-purple-700' : 'bg-brand-50 text-brand-700'}">${escapeHtml(t.label)}</span><br>
+                        <span class="text-[10px] text-slate-500">${escapeHtml(tp.label)}${esRecuperacion ? ' · 🔁 Recuperación' : ''}</span>
                     </td>
                     <td class="p-2 text-center">${verBtn}</td>
                     <td class="p-2 text-center text-[11px] text-slate-500">${escapeHtml(nptFormatoFechaHora(arch?.fechaEntrega || nota?.fecha))}</td>
@@ -8679,7 +8736,7 @@ video {
             try {
                 resp = await fetch(NPT_EVAL_API_ENDPOINT, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-NPT-Auth': NPT_AUTH_HEADER },
+                    headers: await nptWorkerHeadersAutenticados(),
                     body: JSON.stringify(payload)
                 });
             } catch (fallaRed) {
@@ -8688,7 +8745,7 @@ video {
                 try {
                     resp = await fetch(NPT_EVAL_API_ENDPOINT, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-NPT-Auth': NPT_AUTH_HEADER },
+                        headers: await nptWorkerHeadersAutenticados(),
                         body: JSON.stringify(payload)
                     });
                 } catch (reintentoRed) {
@@ -9711,20 +9768,19 @@ video {
         function sgcSolRecuperacionYaRendida(it) {
             return notaNPTDe(it.cedula, it.num, claveRecuperacionNPT(it.clave)) !== null;
         }
-        const SGC_DOCENTE_RESPUESTA = NPT_NOMBRE_DOCENTE;
         async function sgcSolEjecutarAprobacion(it) {
             const h = sgcSolRutaHabilitacion(it);
             await guardarValorFirebase(h.ruta, true);
             let nodo = h.base;
             h.camino.forEach(k => { if (!nodo[k] || typeof nodo[k] !== 'object') nodo[k] = {}; nodo = nodo[k]; });
             nodo[it.cedula] = true;
-            const registro = { ...it.s, estado: 'aprobada', fechaRespuesta: new Date().toISOString(), docenteRespuesta: SGC_DOCENTE_RESPUESTA };
+            const registro = { ...it.s, estado: 'aprobada', fechaRespuesta: new Date().toISOString(), docenteRespuesta: NPT_NOMBRE_DOCENTE };
             delete registro.motivoRespuesta;
             await guardarValorFirebase(`nptSolicitudesRecuperacion/${it.cedula}/trimestre${it.num}/${it.clave}`, registro);
             sgcSolGuardarLocal(it.cedula, it.num, it.clave, registro);
         }
         async function sgcSolEjecutarRechazo(it, motivo) {
-            const registro = { ...it.s, estado: 'rechazada', fechaRespuesta: new Date().toISOString(), docenteRespuesta: SGC_DOCENTE_RESPUESTA, motivoRespuesta: motivo };
+            const registro = { ...it.s, estado: 'rechazada', fechaRespuesta: new Date().toISOString(), docenteRespuesta: NPT_NOMBRE_DOCENTE, motivoRespuesta: motivo };
             await guardarValorFirebase(`nptSolicitudesRecuperacion/${it.cedula}/trimestre${it.num}/${it.clave}`, registro);
             sgcSolGuardarLocal(it.cedula, it.num, it.clave, registro);
         }
@@ -9981,7 +10037,7 @@ video {
             const tipoBase = nptTipoBaseDeClaveInsumo(tipo);
             const estRef = estudiantes.find(e => e.cedula === cedula);
             const tp = tipoBase === 'examen' ? { id: 'examen', label: '📝 Examen' } : (estRef ? nptInsumoObjeto(estRef.curso, estRef.paralelo, trimestre, tipoBase) : null);
-            const etiquetaTp = tp ? `${tp.label}${esRec ? ' — <strong>Recuperación</strong>' : ''}` : tipo;
+            const etiquetaTpHtml = tp ? `${escapeHtml(tp.label)}${esRec ? ' — <strong>Recuperación</strong>' : ''}` : escapeHtml(tipo);
             const notaExistente = nptNotas[cedula]?.[`trimestre${trimestre}`]?.[tipo];
             const ia = nptEvaluacionesIA[cedula]?.[`trimestre${trimestre}`]?.[tipo];
             const arch = nptArchivos[cedula]?.[`trimestre${trimestre}`]?.[tipo];
@@ -9991,7 +10047,7 @@ video {
             const notaOriginalDeReferencia = esRec ? notaNPTDe(cedula, trimestre, tipoBase) : null;
             document.getElementById('npt-modal-info').innerHTML = `
                 <p><strong>Estudiante:</strong> ${escapeHtml(nombre)}</p>
-                <p><strong>Período:</strong> ${t?.label} · ${etiquetaTp}</p>
+                <p><strong>Período:</strong> ${escapeHtml(t?.label || '')} · ${etiquetaTpHtml}</p>
                 ${otrosMedios ? `<p class="text-amber-700 text-xs">📋 No entregó en el sistema al cierre del plazo. Ingresa la nota directamente; puedes editarla luego de guardarla.</p>` : ''}
                 ${esRec ? `<p class="text-purple-600 text-xs">🔁 Esta nota se comparará con la original (${notaOriginalDeReferencia !== null ? formatearNota(notaOriginalDeReferencia) : 'aún no registrada'}): si la supera, la nota efectiva será el promedio de ambas; si no, se mantiene la original.</p>` : ''}
                 ${arch?.nombre ? `<p><strong>Archivo:</strong> ${escapeHtml(arch.nombre)}</p>` : ''}
@@ -10469,7 +10525,7 @@ video {
                     }
 
                     return `<div class="mb-3">
-                        <p class="text-xs font-bold text-slate-600 mb-1">${tp.label}</p>
+                        <p class="text-xs font-bold text-slate-600 mb-1">${escapeHtml(tp.label)}</p>
                         ${estadoHtml}
                         ${recuperacionHtml}
                     </div>`;
@@ -10533,8 +10589,8 @@ video {
                 return `<div class="bg-white rounded-2xl shadow-md border-2 ${hab ? 'trimestre-card habilitado' : 'trimestre-card bloqueado border-slate-100'} p-5">
                     <div class="flex items-center justify-between mb-3">
                         <div>
-                            <h4 class="font-black text-base">${t.label}</h4>
-                            <p class="text-xs text-slate-400">${t.meses}</p>
+                            <h4 class="font-black text-base">${escapeHtml(t.label)}</h4>
+                            <p class="text-xs text-slate-400">${escapeHtml(t.meses || '')}</p>
                         </div>
                         <span class="text-xs font-bold px-2 py-1 rounded-full ${hab ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
                             ${badgeHtml}
@@ -10644,7 +10700,7 @@ video {
                 try {
                     const respValidar = await fetch(NPT_VALIDAR_ENVIO_ENDPOINT, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-NPT-Auth': NPT_AUTH_HEADER },
+                        headers: await nptWorkerHeadersAutenticados(),
                         body: JSON.stringify({ url, correoEsperado: estudianteActual.correo || '' })
                     });
                     validacion = await respValidar.json().catch(() => null);
@@ -10735,7 +10791,7 @@ video {
                 try {
                     const respValidar = await fetch(NPT_VALIDAR_ENVIO_ENDPOINT, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-NPT-Auth': NPT_AUTH_HEADER },
+                        headers: await nptWorkerHeadersAutenticados(),
                         body: JSON.stringify({ url, correoEsperado: estudianteActual.correo || '' })
                     });
                     validacion = await respValidar.json().catch(() => null);
@@ -11159,7 +11215,7 @@ video {
                     recuperacionesGrupo.forEach((r, i) => {
                         const original = notaNPTDe(r.e.cedula, t.num, r.tipo);
                         const efectiva = notaEfectivaNPT(r.e.cedula, t.num, r.tipo);
-                        html += `<tr><td class="center">${i+1}</td><td>${escapeHtml(r.e.nombre)}</td><td>${escapeHtml(r.e.cedula)}</td><td>${r.etiqueta}</td><td class="right">${original !== null ? formatearNota(original) : '—'}</td><td class="right">${formatearNota(r.nota)}</td><td class="right"><strong>${formatearNota(efectiva)}</strong></td></tr>`;
+                        html += `<tr><td class="center">${i+1}</td><td>${escapeHtml(r.e.nombre)}</td><td>${escapeHtml(r.e.cedula)}</td><td>${escapeHtml(r.etiqueta)}</td><td class="right">${original !== null ? formatearNota(original) : '—'}</td><td class="right">${formatearNota(r.nota)}</td><td class="right"><strong>${formatearNota(efectiva)}</strong></td></tr>`;
                     });
                     html += `</table><p class="meta">La nota efectiva es la que se usó en la fórmula del Promedio de Insumos / del Examen de este trimestre: si la recuperación superó a la original, es el promedio de ambas; si no, es la original. Cuando no hay nota original, la efectiva es la de recuperación sola.</p>`;
                 } else {
@@ -11434,7 +11490,7 @@ video {
                 recuperaciones.forEach(r => {
                     const original = notaNPTDe(est.cedula, t.num, r.tipo);
                     const efectiva = notaEfectivaNPT(est.cedula, t.num, r.tipo);
-                    html += `<tr><td>${r.etiqueta}</td><td class="right">${original !== null ? formatearNota(original) : '—'}</td><td class="right">${formatearNota(r.nota)}</td><td class="right"><strong>${formatearNota(efectiva)}</strong></td></tr>`;
+                    html += `<tr><td>${escapeHtml(r.etiqueta)}</td><td class="right">${original !== null ? formatearNota(original) : '—'}</td><td class="right">${formatearNota(r.nota)}</td><td class="right"><strong>${formatearNota(efectiva)}</strong></td></tr>`;
                 });
                 html += `</table><p class="meta">La nota efectiva es la que se usó arriba, en la tabla principal y en la Nota Final del trimestre: si la recuperación superó a la original, es el promedio de ambas; si no, es la original. Cuando no hay nota original, la efectiva es la de recuperación sola.</p>`;
             } else {
@@ -11982,6 +12038,8 @@ video {
         }
 
         function renderTabConfiguracion() {
+            const campoDocente = document.getElementById('cfg-nombre-docente');
+            if (campoDocente && document.activeElement !== campoDocente) campoDocente.value = NPT_NOMBRE_DOCENTE;
             // (A) Período activo
             const inputP = document.getElementById('cfg-periodo-nombre');
             const estadoP = document.getElementById('cfg-periodo-estado');
@@ -12469,9 +12527,20 @@ video {
             const cont = document.getElementById('cfg-firma-preview');
             if (!cont) return;
             if (cfgFirmaDocente?.base64) {
-                cont.innerHTML = `<img src="data:${cfgFirmaDocente.mime || 'image/png'};base64,${cfgFirmaDocente.base64}" class="max-w-full max-h-full object-contain" alt="Firma del docente">`;
+                const mime = cfgFirmaDocente.mime || 'image/png';
+                const base64 = String(cfgFirmaDocente.base64);
+                if (!['image/png', 'image/jpeg'].includes(mime) || base64.length === 0 || base64.length > 4 * 1024 * 1024 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+                    cont.textContent = 'La firma guardada no tiene un formato válido.';
+                    cont.className = 'w-48 h-24 bg-white border rounded-lg flex items-center justify-center text-[11px] text-rose-600 p-2';
+                    return;
+                }
+                const img = document.createElement('img');
+                img.src = `data:${mime};base64,${base64}`;
+                img.className = 'max-w-full max-h-full object-contain';
+                img.alt = 'Firma del docente';
+                cont.replaceChildren(img);
             } else {
-                cont.innerHTML = `<span>Sin firma registrada</span>`;
+                cont.textContent = 'Sin firma registrada';
                 cont.className = 'w-48 h-24 bg-white border rounded-lg flex items-center justify-center text-[11px] text-slate-400 p-2';
             }
         }
@@ -12655,7 +12724,7 @@ video {
         // 'nptArchivosMeta' sí se incluye porque es el índice liviano (sin Base64:
         // nombre, tamaño, fecha) y no representa riesgo de sobrecarga.
         const NODOS_BACKUP = [
-            'estudiantes', 'calificaciones', 'configuracion',
+            'estudiantes', 'calificaciones', 'configuracion', 'docentePublico',
             'nptConfig', 'nptHabilitacionEstudiantes', 'nptExamenHabilitacionEstudiantes',
             'nptExamenRecuperacionHabilitacionEstudiantes', 'nptInsumoRecuperacionHabilitacionEstudiantes',
             'nptExamenes', 'nptInsumoPreguntas', 'nptRubricas', 'nptNotas', 'nptArchivosMeta',
@@ -13067,7 +13136,7 @@ video {
             const etiquetaTp = tp ? `${tp.label}${esRec ? ' (Recuperación)' : ''}` : tipo;
             const notaOriginalRef = esRec ? notaNPTDe(cedula, numTrimestre, tipoBase) : null;
             const notaEfectivaRef = esRec ? notaEfectivaNPT(cedula, numTrimestre, tipoBase) : null;
-            const docenteVerificador = nota.docente === 'Ing. César Godoy Rosero, Mgt.' ? NPT_NOMBRE_DOCENTE : (nota.docente || NPT_NOMBRE_DOCENTE);
+            const docenteVerificador = NPT_NOMBRE_DOCENTE || nota.docente || 'Docente no configurado';
             const ventana = window.open('', '_blank');
             if (!ventana) { alert('El navegador bloqueó la ventana de impresión. Habilita las ventanas emergentes.'); return; }
             ventana.document.write(`
@@ -13093,7 +13162,7 @@ video {
                     <tr><th>Estudiante</th><td>${escapeHtml(estudianteActual.nombre)}</td></tr>
                     <tr><th>Cédula</th><td>${escapeHtml(cedula)}</td></tr>
                     <tr><th>Curso / Paralelo</th><td>${escapeHtml(estudianteActual.curso)} "${escapeHtml(estudianteActual.paralelo)}"</td></tr>
-                    <tr><th>Período</th><td>${t?.label || ''}</td></tr>
+                    <tr><th>Período</th><td>${escapeHtml(t?.label || '')}</td></tr>
                     <tr><th>Tipo de entrega</th><td>${escapeHtml(etiquetaTp)}</td></tr>
                     <tr><th>Nota</th><td>${formatearNota(numero(nota.nota))} / 10</td></tr>
                     <tr><th>Observación del docente</th><td>${escapeHtml(nota.observacion||'-')}</td></tr>
@@ -13205,6 +13274,7 @@ video {
         window.guardarObservacionCurso = guardarObservacionCurso;
         // Configuración
         window.renderTabConfiguracion = renderTabConfiguracion;
+        window.guardarNombreDocente = guardarNombreDocente;
         window.guardarPeriodoActivo = guardarPeriodoActivo;
         window.guardarTrimestresConfig = guardarTrimestresConfig;
         window.renderFormulaPromedio = renderFormulaPromedio;
